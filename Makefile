@@ -1,23 +1,23 @@
 CXX      = c++
 STD      = -std=c++20
-OPT      = -O3
+OPT      = -O3 -fno-omit-frame-pointer -g
 
-BOTAN_SRC = /Users/viktor/MIPT/spring2026/projects/botan
-BOTAN_INC = $(BOTAN_SRC)/build/include/public
-BOTAN_LIB = $(BOTAN_SRC)/libbotan-3.dylib
+BOTAN_CFLAGS = $(shell pkg-config --cflags botan-3)
+BOTAN_LIBS   = $(shell pkg-config --libs botan-3)
 
-BENCH_INC = /opt/homebrew/Cellar/google-benchmark/1.9.5/include
-BENCH_LIB = /opt/homebrew/Cellar/google-benchmark/1.9.5/lib/libbenchmark.a \
-            /opt/homebrew/Cellar/google-benchmark/1.9.5/lib/libbenchmark_main.a
+BENCH_DIR    = vendor/benchmark
+BENCH_CFLAGS = -I$(BENCH_DIR)/include
+BENCH_LIBS   = $(BENCH_DIR)/build/src/libbenchmark.a \
+               $(BENCH_DIR)/build/src/libbenchmark_main.a
 
-CXXFLAGS = $(STD) $(OPT) -I$(BOTAN_INC) -I$(BENCH_INC)
-LDFLAGS  = $(BOTAN_LIB) $(BENCH_LIB) -lpthread
+CXXFLAGS = $(STD) $(OPT) $(BOTAN_CFLAGS) $(BENCH_CFLAGS)
+LDFLAGS  = $(BOTAN_LIBS) $(BENCH_LIBS) -lpthread
 
 # -----------------------------------------------------------------------
 # Targets
 # -----------------------------------------------------------------------
 
-.PHONY: all bench_aes run-armv8 run-vperm run-bitsliced run-compare run-all clean
+.PHONY: all bench_aes run-aesni run-ssse3 run-bitsliced run-compare run-all clean
 
 all: bench_aes main
 
@@ -25,8 +25,12 @@ all: bench_aes main
 my-aes-bench.o: my-aes.cpp
 	$(CXX) $(STD) $(OPT) -DBENCH_DIRECT -c $< -o $@
 
-bench_aes: bench_aes.cpp my-aes-bench.o
-	$(CXX) $(CXXFLAGS) bench_aes.cpp my-aes-bench.o -o $@ $(LDFLAGS)
+# Compile my-aes-ni.cpp with AES-NI intrinsics enabled
+my-aes-ni.o: my-aes-ni.cpp
+	$(CXX) $(STD) $(OPT) -maes -msse4.1 -c $< -o $@
+
+bench_aes: bench_aes.cpp my-aes-bench.o my-aes-ni.o
+	$(CXX) $(CXXFLAGS) bench_aes.cpp my-aes-bench.o my-aes-ni.o -o $@ $(LDFLAGS)
 
 main: my-aes.cpp
 	$(CXX) $(STD) $(OPT) $< -o $@
@@ -37,37 +41,37 @@ main: my-aes.cpp
 
 BENCH_FLAGS = --benchmark_time_unit=ns --benchmark_counters_tabular=true
 
-run-armv8: bench_aes
+run-aesni: bench_aes
 	@echo "========================================================"
-	@echo "  Backend: ARMv8 hardware AES  (vaeseq_u8 / vaesmcq_u8)"
+	@echo "  Backend: AES-NI (hardware)"
 	@echo "========================================================"
 	./bench_aes $(BENCH_FLAGS)
 
-run-vperm: bench_aes
+run-ssse3: bench_aes
 	@echo "========================================================"
-	@echo "  Backend: VPERM / NEON  (BOTAN_CLEAR_CPUID=armv8aes)"
+	@echo "  Backend: SSSE3 VPERM  (BOTAN_CLEAR_CPUID=aes_ni)"
 	@echo "========================================================"
-	BOTAN_CLEAR_CPUID=armv8aes ./bench_aes $(BENCH_FLAGS)
+	BOTAN_CLEAR_CPUID=aes_ni ./bench_aes $(BENCH_FLAGS)
 
 run-bitsliced: bench_aes
 	@echo "========================================================"
-	@echo "  Backend: Bitsliced  (BOTAN_CLEAR_CPUID=armv8aes,neon)"
+	@echo "  Backend: Bitsliced  (BOTAN_CLEAR_CPUID=aes_ni,ssse3)"
 	@echo "========================================================"
-	BOTAN_CLEAR_CPUID=armv8aes,neon ./bench_aes $(BENCH_FLAGS)
+	BOTAN_CLEAR_CPUID=aes_ni,ssse3 ./bench_aes $(BENCH_FLAGS)
 
 run-compare: bench_aes
 	@echo "========================================================"
 	@echo "  Botan bitsliced vs my-aes.cpp (оба — base бэкенд)"
 	@echo "========================================================"
-	BOTAN_CLEAR_CPUID=armv8aes,neon ./bench_aes $(BENCH_FLAGS)
+	BOTAN_CLEAR_CPUID=aes_ni,ssse3 ./bench_aes $(BENCH_FLAGS)
 
 run-all: bench_aes
 	@echo ""
-	@$(MAKE) --no-print-directory run-armv8
+	@$(MAKE) --no-print-directory run-aesni
 	@echo ""
-	@$(MAKE) --no-print-directory run-vperm
+	@$(MAKE) --no-print-directory run-ssse3
 	@echo ""
 	@$(MAKE) --no-print-directory run-bitsliced
 
 clean:
-	rm -f bench_aes main
+	rm -f bench_aes main my-aes-bench.o my-aes-ni.o

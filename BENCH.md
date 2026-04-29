@@ -11,11 +11,11 @@ make all         # оба
 ## Запуск
 
 ```bash
-# ARMv8 hardware AES (vaeseq_u8 / vaesmcq_u8) — дефолт на M1
-make run-armv8
+# AES-NI (hardware) — дефолт на x86-64 с поддержкой AES-NI
+make run-aesni
 
-# VPERM / NEON (vector permute, Mike Hamburg CHES 2009)
-make run-vperm
+# SSSE3 VPERM (vector permute, Mike Hamburg CHES 2009)
+make run-ssse3
 
 # Bitsliced (скалярный, 2 блока параллельно)
 make run-bitsliced
@@ -33,9 +33,9 @@ Botan читает `BOTAN_CLEAR_CPUID` при старте и вычёркива
 Бинарник один и тот же — меняется только окружение.
 
 ```
-(ничего)               → armv8aes  (HW AES)
-BOTAN_CLEAR_CPUID=armv8aes          → neon     (VPERM)
-BOTAN_CLEAR_CPUID=armv8aes,neon     → base     (bitsliced)
+(ничего)                        → aes_ni  (HW AES)
+BOTAN_CLEAR_CPUID=aes_ni       → ssse3   (VPERM)
+BOTAN_CLEAR_CPUID=aes_ni,ssse3 → base    (bitsliced)
 ```
 
 ## Что измеряется

@@ -36,6 +36,16 @@ namespace BitslicedDirect {
                    const std::vector<uint32_t>& DK);
 }
 
+// Forward declarations for AES-NI wrappers defined in my-aes-ni.cpp
+namespace AesNiDirect {
+    void key_schedule(const uint8_t* key, size_t len,
+                      std::vector<uint32_t>& EK, std::vector<uint32_t>& DK);
+    void encrypt_n(const uint8_t* in, uint8_t* out, size_t blocks,
+                   const std::vector<uint32_t>& EK);
+    void decrypt_n(const uint8_t* in, uint8_t* out, size_t blocks,
+                   const std::vector<uint32_t>& DK);
+}
+
 // -----------------------------------------------------------------------
 // Shared test data  (FIPS-197 Appendix C.1)
 // -----------------------------------------------------------------------
@@ -173,5 +183,61 @@ static void BM_Direct_KeySchedule(benchmark::State& state) {
 BENCHMARK(BM_Direct_Encrypt)->Arg(1)->Arg(2)->Arg(4)->Arg(64)->Arg(1024);
 BENCHMARK(BM_Direct_Decrypt)->Arg(1)->Arg(2)->Arg(4)->Arg(64)->Arg(1024);
 BENCHMARK(BM_Direct_KeySchedule);
+
+// -----------------------------------------------------------------------
+// BM_AesNi_*  –  direct calls into AesNiDirect (my-aes-ni.cpp),
+// using AES-NI hardware intrinsics, no Botan class overhead.
+// -----------------------------------------------------------------------
+static void BM_AesNi_Encrypt(benchmark::State& state) {
+    const size_t nblocks = static_cast<size_t>(state.range(0));
+
+    std::vector<uint32_t> EK, DK;
+    AesNiDirect::key_schedule(KEY128, 16, EK, DK);
+
+    auto in  = make_buf(nblocks);
+    auto out = make_buf(nblocks);
+
+    for (auto _ : state) {
+        AesNiDirect::encrypt_n(in.data(), out.data(), nblocks, EK);
+        benchmark::DoNotOptimize(out.data());
+        benchmark::ClobberMemory();
+    }
+
+    state.SetBytesProcessed(
+        static_cast<int64_t>(state.iterations()) * static_cast<int64_t>(nblocks * 16));
+}
+
+static void BM_AesNi_Decrypt(benchmark::State& state) {
+    const size_t nblocks = static_cast<size_t>(state.range(0));
+
+    std::vector<uint32_t> EK, DK;
+    AesNiDirect::key_schedule(KEY128, 16, EK, DK);
+
+    auto in  = make_buf(nblocks);
+    auto out = make_buf(nblocks);
+
+    for (auto _ : state) {
+        AesNiDirect::decrypt_n(in.data(), out.data(), nblocks, DK);
+        benchmark::DoNotOptimize(out.data());
+        benchmark::ClobberMemory();
+    }
+
+    state.SetBytesProcessed(
+        static_cast<int64_t>(state.iterations()) * static_cast<int64_t>(nblocks * 16));
+}
+
+static void BM_AesNi_KeySchedule(benchmark::State& state) {
+    std::vector<uint32_t> EK, DK;
+
+    for (auto _ : state) {
+        AesNiDirect::key_schedule(KEY128, 16, EK, DK);
+        benchmark::DoNotOptimize(EK.data());
+        benchmark::ClobberMemory();
+    }
+}
+
+BENCHMARK(BM_AesNi_Encrypt)->Arg(1)->Arg(2)->Arg(4)->Arg(64)->Arg(1024);
+BENCHMARK(BM_AesNi_Decrypt)->Arg(1)->Arg(2)->Arg(4)->Arg(64)->Arg(1024);
+BENCHMARK(BM_AesNi_KeySchedule);
 
 BENCHMARK_MAIN();
